@@ -6,8 +6,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-from html2image import Html2Image
-import base64
+
 
 
 
@@ -528,106 +527,6 @@ def insights_diarios(df_pct, grupo, meta_f, meta_r):
     return insights
 
 
-def exportar_reporte_png(fig, insights, grupo, nombre="reporte_maquinaria.png"):
-    """
-    Genera un PNG ejecutivo con:
-    - gráfico (Plotly) a la izquierda
-    - panel insights a la derecha
-    Usando base64 para evitar que el gráfico salga roto.
-    """
-
-    # 1) Render del gráfico Plotly a PNG (tamaño fijo para evitar cortes)
-    tmp_png = f"grafico_{grupo}.png".replace(" ", "_").replace("/", "_")
-    fig.write_image(tmp_png, width=1200, height=700, scale=2)  # clave: size fijo
-
-    # 2) Convertir imagen a base64 (evita rutas rotas en html2image)
-    with open(tmp_png, "rb") as f:
-        img_b64 = base64.b64encode(f.read()).decode("utf-8")
-
-    # 3) HTML del reporte (con imagen embebida)
-    texto_html = "<br>".join(insights)
-
-    html = f"""
-    <html>
-    <head>
-    <meta charset="utf-8">
-    <style>
-      body {{
-        font-family: Arial, sans-serif;
-        background: white;
-        margin: 0;
-        padding: 24px;
-      }}
-      .container {{
-        display: flex;
-        gap: 24px;
-        align-items: flex-start;
-      }}
-      .left {{
-        width: 70%;
-      }}
-      .right {{
-        width: 30%;
-        background-color: #F8F9F7;
-        border: 3px solid #1A7335;
-        border-radius: 16px;
-        padding: 18px;
-        box-sizing: border-box;
-      }}
-      .title {{
-        color: #1A7335;
-        margin: 0 0 6px 0;
-        font-size: 18px;
-        font-weight: 700;
-      }}
-      .subtitle {{
-        margin: 0 0 12px 0;
-        font-size: 14px;
-        font-weight: 700;
-        color: #000;
-      }}
-      .ins {{
-        font-size: 13px;
-        line-height: 1.6;
-        color: #000;
-      }}
-      img {{
-        width: 100%;
-        height: auto;
-        display: block;
-      }}
-    </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="left">
-          <img src="data:image/png;base64,{img_b64}" />
-        </div>
-        <div class="right">
-          <div class="title">🧭 Diagnóstico Operativo</div>
-          <div class="subtitle">{grupo}</div>
-          <div class="ins">{texto_html}</div>
-        </div>
-      </div>
-    </body>
-    </html>
-    """
-
-    # 4) HTML -> PNG
-    hti = Html2Image(output_path=".")
-    hti.screenshot(
-        html_str=html,
-        save_as=nombre,
-        size=(1800, 950)   # canvas del reporte
-    )
-
-    # 5) Limpieza del temporal
-    try:
-        os.remove(tmp_png)
-    except Exception:
-        pass
-
-    return nombre
 
 # ============================================================
 # 6. SEMANAL
@@ -868,3 +767,4 @@ if archivo_diario and archivo_semanal:
 
 
 #C:\Users\sacorreac\Downloads\.venv\Scripts\streamlit.exe run C:\Users\sacorreac\Downloads\archivo_maquina\maquinaria.py
+
