@@ -6,8 +6,9 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-
-
+from html2image import Html2Image
+import base64
+import os
 
 
 st.set_page_config(
@@ -187,6 +188,8 @@ def preparar_promedio_semanal(df_long, grupo):
     return prom
 
 
+import plotly.graph_objects as go
+
 def grafico_diario(df_pct, df_horas, df_long_semanal, grupo, meta_func, meta_ralenti):
 
     # ===== COLORES =====
@@ -200,7 +203,11 @@ def grafico_diario(df_pct, df_horas, df_long_semanal, grupo, meta_func, meta_ral
     COLOR_PRAL = "#613703"
     COLOR_PTRAS = "#777777"
 
-    # Filtrar grupo
+    COLOR_FUNC_WEEK = "rgba(50,205,50,0.35)"
+    COLOR_RAL_WEEK  = "rgba(255,140,0,0.35)"
+    COLOR_TRANS_WEEK= "rgba(166,166,166,0.35)"
+
+    # ===== FILTRAR GRUPO =====
     dfp = df_pct[df_pct["Grupo_trabajo"] == grupo].copy()
     dfh = df_horas[df_horas["Grupo_trabajo"] == grupo].copy()
 
@@ -225,13 +232,9 @@ def grafico_diario(df_pct, df_horas, df_long_semanal, grupo, meta_func, meta_ral
         "Ralenti": COLOR_PRAL,
         "Transporte": COLOR_PTRAS
     }
-    COLOR_FUNC_WEEK = "rgba(50,205,50,0.35)"     # verde difuminado
-    COLOR_RAL_WEEK  = "rgba(255,140,0,0.35)"    # naranja difuminado
-    COLOR_TRANS_WEEK= "rgba(166,166,166,0.35)"  # gris difuminado
 
     fig = go.Figure()
 
-    
     # ======================================================
     # 0. BARRAS PROMEDIO SEMANAL (FONDO)
     # ======================================================
@@ -244,27 +247,24 @@ def grafico_diario(df_pct, df_horas, df_long_semanal, grupo, meta_func, meta_ral
         fig.add_trace(go.Bar(
             x=d["x_num"],
             y=d["prom_semana"],
-            name=f"{tipo} promedio semana",
             marker_color=COLORS_BAR[tipo],
-            opacity=0.50,                 # ← DIFUMINADO
-            width=0.38,                   # ← MÁS ANCHO
+            opacity=0.50,
+            width=0.38,
             showlegend=False
         ))
 
-        
         fig.add_trace(go.Scatter(
-            x=d["x_num"] + 0.06,      # ← pequeño desplazamiento a la derecha
+            x=d["x_num"] + 0.06,
             y=d["prom_semana"],
             mode="text",
             text=d["prom_semana"].round(0),
-            textposition="middle right",
             textfont=dict(color="#444444", size=8),
             showlegend=False,
             hoverinfo="skip"
         ))
 
     # ======================================================
-    # 1. BARRAS DIARIAS
+    # 1. BARRAS DIARIAS (%)
     # ======================================================
     for tipo in ["Funcionamiento", "Ralenti", "Transporte"]:
         d = dfp[dfp["Tipo"] == tipo].copy()
@@ -273,16 +273,16 @@ def grafico_diario(df_pct, df_horas, df_long_semanal, grupo, meta_func, meta_ral
         fig.add_trace(go.Bar(
             x=d["x_num"],
             y=d["Porcentaje"],
-            name=tipo,
             marker_color=COLORS_BAR[tipo],
             text=d["Porcentaje"].round(0),
             textposition="outside",
             textfont=dict(color="black"),
-            width=0.22
+            width=0.22,
+            name=tipo
         ))
 
     # ======================================================
-    # 2. PUNTOS DE HORAS
+    # 2. PUNTOS DE HORAS (EJE SECUNDARIO)
     # ======================================================
     for tipo in ["Funcionamiento", "Ralenti", "Transporte"]:
         dh = dfh[dfh["TipoHora"] == tipo].copy()
@@ -290,28 +290,30 @@ def grafico_diario(df_pct, df_horas, df_long_semanal, grupo, meta_func, meta_ral
 
         fig.add_trace(go.Scatter(
             x=dh["x_num"],
-            y=dh["HorasEscaladas"],
+            y=dh["Horas"],
+            yaxis="y2",
             mode="markers+text",
             text=dh["Horas"].round(1),
             textposition="bottom center",
+            textfont=dict(color="black"),   
             marker=dict(
                 size=6,
                 color=COLORS_PT[tipo],
                 line=dict(color="black", width=0.5)
             ),
-            textfont=dict(color="black"),
             showlegend=False
         ))
 
     # ======================================================
-    # 3. HORAS MOTOR
+    # 3. HORAS MOTOR (EJE SECUNDARIO)
     # ======================================================
     hm = dfh[dfh["TipoHora"] == "Horas_Motor"].copy()
     hm["x_num"] = hm["Máquina"].map(x_index)
 
     fig.add_trace(go.Scatter(
         x=hm["x_num"],
-        y=hm["HorasEscaladas"],
+        y=hm["Horas"],
+        yaxis="y2",
         mode="markers+text",
         text=hm["Horas"].round(1),
         textposition="top center",
@@ -321,7 +323,7 @@ def grafico_diario(df_pct, df_horas, df_long_semanal, grupo, meta_func, meta_ral
     ))
 
     # ======================================================
-    # 4. LÍNEAS DE META
+    # 4. LÍNEAS DE META (%)
     # ======================================================
     xmin = min(x_index.values()) - 0.6
     xmax = max(x_index.values()) + 0.6
@@ -333,7 +335,6 @@ def grafico_diario(df_pct, df_horas, df_long_semanal, grupo, meta_func, meta_ral
         line=dict(color=COLOR_META_F, dash="dash", width=2),
         text=[None, f"{meta_func}%"],
         textposition="middle right",
-        textfont=dict(color=COLOR_META_F),
         name="Meta funcionamiento"
     ))
 
@@ -344,21 +345,36 @@ def grafico_diario(df_pct, df_horas, df_long_semanal, grupo, meta_func, meta_ral
         line=dict(color=COLOR_META_R, dash="dash", width=2),
         text=[None, f"{meta_ralenti}%"],
         textposition="middle right",
-        textfont=dict(color=COLOR_META_R),
         name="Meta ralentí"
     ))
 
     # ======================================================
-    # 5. LAYOUT
+    # 5. LAYOUT (EJE SECUNDARIO)
     # ======================================================
     fig.update_layout(
         height=650,
         template="simple_white",
         barmode="overlay",
         title=f"Tiempos de operación diario — {grupo}",
-        yaxis=dict(range=[0, 100], title="% Tiempo"),
+
+        yaxis=dict(
+            title="% Tiempo",
+            range=[0, 100]
+        ),
+
+        yaxis2=dict(
+            title="Horas",
+            linecolor="red", 
+            tickcolor="red",    
+            overlaying="y",
+            side="right",
+            range=[0, dfh["Horas"].max() * 1.15],  # ← empieza en 0
+            showgrid=False
+        ),
+
+
         legend=dict(orientation="h", y=-0.25),
-        margin=dict(l=50, r=50, t=80, b=120)
+        margin=dict(l=50, r=60, t=80, b=120)
     )
 
     fig.update_xaxes(
@@ -367,40 +383,29 @@ def grafico_diario(df_pct, df_horas, df_long_semanal, grupo, meta_func, meta_ral
         ticktext=maquinas,
         title_text="Máquina"
     )
-    # ======================================================
-    # LEYENDAS — PROMEDIO SEMANAL (RGBA FUNCIONA)
-    # ======================================================
 
+    # ======================================================
+    # LEYENDA PROMEDIO SEMANAL
+    # ======================================================
     fig.add_trace(go.Bar(
-        x=[None],
-        y=[None],
+        x=[None], y=[None],
         marker_color=COLOR_FUNC_WEEK,
-        width=0.38,
-        name="Funcionamiento · Promedio semanal",
-        showlegend=True
+        name="Funcionamiento · Promedio semanal"
     ))
 
     fig.add_trace(go.Bar(
-        x=[None],
-        y=[None],
+        x=[None], y=[None],
         marker_color=COLOR_RAL_WEEK,
-        width=0.38,
-        name="Ralentí · Promedio semanal",
-        showlegend=True
+        name="Ralentí · Promedio semanal"
     ))
 
     fig.add_trace(go.Bar(
-        x=[None],
-        y=[None],
+        x=[None], y=[None],
         marker_color=COLOR_TRANS_WEEK,
-        width=0.38,
-        name="Transporte · Promedio semanal",
-        showlegend=True
+        name="Transporte · Promedio semanal"
     ))
-
 
     return fig
-
 
 
 def insights_diarios(df_pct, grupo, meta_f, meta_r):
@@ -527,6 +532,106 @@ def insights_diarios(df_pct, grupo, meta_f, meta_r):
     return insights
 
 
+def exportar_reporte_png(fig, insights, grupo, nombre="reporte_maquinaria.png"):
+    """
+    Genera un PNG ejecutivo con:
+    - gráfico (Plotly) a la izquierda
+    - panel insights a la derecha
+    Usando base64 para evitar que el gráfico salga roto.
+    """
+
+    # 1) Render del gráfico Plotly a PNG (tamaño fijo para evitar cortes)
+    tmp_png = f"grafico_{grupo}.png".replace(" ", "_").replace("/", "_")
+    fig.write_image(tmp_png, width=1200, height=700, scale=2)  # clave: size fijo
+
+    # 2) Convertir imagen a base64 (evita rutas rotas en html2image)
+    with open(tmp_png, "rb") as f:
+        img_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+    # 3) HTML del reporte (con imagen embebida)
+    texto_html = "<br>".join(insights)
+
+    html = f"""
+    <html>
+    <head>
+    <meta charset="utf-8">
+    <style>
+      body {{
+        font-family: Arial, sans-serif;
+        background: white;
+        margin: 0;
+        padding: 24px;
+      }}
+      .container {{
+        display: flex;
+        gap: 24px;
+        align-items: flex-start;
+      }}
+      .left {{
+        width: 70%;
+      }}
+      .right {{
+        width: 30%;
+        background-color: #F8F9F7;
+        border: 3px solid #1A7335;
+        border-radius: 16px;
+        padding: 18px;
+        box-sizing: border-box;
+      }}
+      .title {{
+        color: #1A7335;
+        margin: 0 0 6px 0;
+        font-size: 18px;
+        font-weight: 700;
+      }}
+      .subtitle {{
+        margin: 0 0 12px 0;
+        font-size: 14px;
+        font-weight: 700;
+        color: #000;
+      }}
+      .ins {{
+        font-size: 13px;
+        line-height: 1.6;
+        color: #000;
+      }}
+      img {{
+        width: 100%;
+        height: auto;
+        display: block;
+      }}
+    </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="left">
+          <img src="data:image/png;base64,{img_b64}" />
+        </div>
+        <div class="right">
+          <div class="title">🧭 Diagnóstico Operativo</div>
+          <div class="subtitle">{grupo}</div>
+          <div class="ins">{texto_html}</div>
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
+    # 4) HTML -> PNG
+    hti = Html2Image(output_path=".")
+    hti.screenshot(
+        html_str=html,
+        save_as=nombre,
+        size=(1800, 950)   # canvas del reporte
+    )
+
+    # 5) Limpieza del temporal
+    try:
+        os.remove(tmp_png)
+    except Exception:
+        pass
+
+    return nombre
 
 # ============================================================
 # 6. SEMANAL
@@ -588,70 +693,7 @@ def insights_semanales(df_long, grupo):
 
     return txt
 
-from plotly.subplots import make_subplots
 
-from plotly.subplots import make_subplots
-
-def grafico_con_insights(fig_base, insights, grupo):
-
-    fig = make_subplots(
-        rows=1,
-        cols=2,
-        column_widths=[0.70, 0.30],
-        specs=[[{"type": "xy"}, {"type": "xy"}]],
-        horizontal_spacing=0.02
-    )
-
-    # ======================================================
-    # 1. Gráfico principal (columna izquierda)
-    # ======================================================
-    for trace in fig_base.data:
-        fig.add_trace(trace, row=1, col=1)
-
-    fig.update_xaxes(fig_base.layout.xaxis, row=1, col=1)
-    fig.update_yaxes(fig_base.layout.yaxis, row=1, col=1)
-
-    # ======================================================
-    # 2. Panel derecho vacío (ocultamos ejes)
-    # ======================================================
-    fig.update_xaxes(visible=False, row=1, col=2)
-    fig.update_yaxes(visible=False, row=1, col=2)
-
-    # ======================================================
-    # 3. Texto de insights (anclado al eje derecho)
-    # ======================================================
-    texto = "<br>".join(insights)
-
-    fig.add_annotation(
-        x=0,
-        y=1,
-        xref="x2",
-        yref="y2",
-        align="left",
-        valign="top",
-        showarrow=False,
-        text=(
-            f"<b>🧭 Diagnóstico Operativo</b><br>"
-            f"<b>{grupo}</b><br><br>{texto}"
-        ),
-        font=dict(size=13, color="black"),
-        bgcolor="rgba(248,248,248,0.98)",
-        bordercolor="#1A7335",
-        borderwidth=2,
-        borderpad=12
-    )
-
-    # ======================================================
-    # 4. Layout final
-    # ======================================================
-    fig.update_layout(
-        height=650,
-        template="simple_white",
-        margin=dict(l=30, r=30, t=40, b=100),
-        showlegend=True
-    )
-
-    return fig
 
 # ============================================================
 # 7. UI — STREAMLIT
@@ -661,15 +703,15 @@ st.sidebar.title("🚜 Panel de Maquinaria")
 menu = "Reporte Completo"
 
 
-st.title("📊 Panel de Maquinaria — Ingenio Providencia")
+st.title("📊 Seguimiento diario de la maquinaria — Ingenio Providencia")
 
-st.markdown("<hr>", unsafe_allow_html=True)
+#st.markdown("<hr>", unsafe_allow_html=True)
 
 # ------------------------------------------------------------
 # REPORTE DIARIO
 # ------------------------------------------------------------
 
-st.subheader("Seguimiento diario de la maquinaria")
+#st.subheader("Seguimiento diario de la maquinaria")
 
 st.sidebar.header("📂 Cargue de Información")
 
@@ -700,7 +742,7 @@ if archivo_diario and archivo_semanal:
     st.markdown("---")
 
     for grupo in grupos:
-        st.markdown(f"## 🔷 {grupo}")
+        #st.markdown(f"## 🔷 {grupo}")
 
         metas = METAS[grupo]
 
@@ -716,7 +758,7 @@ if archivo_diario and archivo_semanal:
         )
 
 
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        #st.markdown("<div class='card'>", unsafe_allow_html=True)
 
         
         #st.plotly_chart(fig_diario, use_container_width=True)
@@ -729,29 +771,81 @@ if archivo_diario and archivo_semanal:
             #st.markdown("### 📊 Desempeño Diario")
             st.plotly_chart(fig_diario, use_container_width=True)
 
+        import streamlit.components.v1 as components
+
         with col_txt:
-            st.markdown(f"""
+
+            resumen = insights[0]
+            diagnostico = insights[1:-1]
+            accion = insights[-1]
+
+            html = f"""
             <div style="
                 background-color:#F8F9F7;
                 border:3px solid #1A7335;
                 border-radius:16px;
-                padding:20px;
-                min-height:520px;
+                padding:22px;
+                font-family: Arial, sans-serif;
+                box-sizing: border-box;
             ">
-                <h4 style="color:#1A7335; margin-bottom:6px;">
+
+                <!-- TÍTULO -->
+                <div style="
+                    color:#1A7335;
+                    font-size:18px;
+                    font-weight:700;
+                    margin-bottom:4px;
+                ">
                     🧭 Diagnóstico Operativo
-                </h4>
-                <h5 style="margin-top:0;">
-                    {grupo}
-                </h5>
-                <div style="font-size:14px; line-height:1.7;">
-                    {"<br>".join(insights)}
                 </div>
+
+                <!-- GRUPO (MÁS GRANDE) -->
+                <div style="
+                    font-size:22px;
+                    font-weight:800;
+                    margin-bottom:14px;
+                    color:#000;
+                ">
+                    {grupo}
+                </div>
+
+                <!-- RESUMEN -->
+                <div style="
+                    font-size:13px;
+                    line-height:1.6;
+                    margin-bottom:14px;
+                ">
+                    {resumen}
+                </div>
+
+                <hr style="border:none; border-top:1px solid #C7D8CC; margin:14px 0;">
+
+                <!-- DIAGNÓSTICO POR MÁQUINA -->
+                <div style="
+                    font-size:13px;
+                    line-height:1.6;
+                    margin-bottom:14px;
+                ">
+                    {"<br>".join(diagnostico)}
+                </div>
+
+                <hr style="border:none; border-top:1px solid #C7D8CC; margin:14px 0;">
+
+                <!-- ACCIÓN -->
+                <div style="
+                    font-size:13px;
+                    line-height:1.6;
+                    font-weight:600;
+                ">
+                    {accion}
+                </div>
+
             </div>
-            """, unsafe_allow_html=True)
+            """
+
+            components.html(html, height=600)
 
 
-        
 
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -767,4 +861,3 @@ if archivo_diario and archivo_semanal:
 
 
 #C:\Users\sacorreac\Downloads\.venv\Scripts\streamlit.exe run C:\Users\sacorreac\Downloads\archivo_maquina\maquinaria.py
-
