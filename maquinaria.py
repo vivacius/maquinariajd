@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
+from html2image import Html2Image
 import base64
 import os
 
@@ -186,10 +187,21 @@ def preparar_promedio_semanal(df_long, grupo):
 
     return prom
 
+def preparar_promedio_mensual(df_long):
+    df_long["Mes"] = df_long["Fecha"].dt.to_period("M")
+
+    prom = (
+        df_long
+        .groupby(["Máquina", "Tipo", "Mes"])
+        .agg(prom_mes=("Porcentaje", "mean"))
+        .reset_index()
+    )
+
+    return prom
 
 import plotly.graph_objects as go
 
-def grafico_diario(df_pct, df_horas, df_long_semanal, grupo, meta_func, meta_ralenti):
+def grafico_diario(df_pct, df_horas, df_long_semanal, grupo, meta_func, meta_ralenti, periodo, semana_ref):
 
     # ===== COLORES =====
     COLOR_FUNC = "#32CD32"
@@ -350,11 +362,23 @@ def grafico_diario(df_pct, df_horas, df_long_semanal, grupo, meta_func, meta_ral
     # ======================================================
     # 5. LAYOUT (EJE SECUNDARIO)
     # ======================================================
+    # ======================================================
+# TÍTULOS DINÁMICOS
+# ======================================================
+    if periodo == "Diario vs Semana":
+        titulo_fig = f"Tiempos de operación — Diario | {grupo} | Semana {semana_ref}"
+        etiqueta_prom = "Promedio semanal"
+    else:
+        titulo_fig = f"Tiempos de operación — Semanal | {grupo}| Semana  {semana_ref}"
+        etiqueta_prom = "Promedio mensual"
+
+    
+    
     fig.update_layout(
         height=650,
         template="simple_white",
         barmode="overlay",
-        title=f"Tiempos de operación semana 51 — {grupo}",
+        title=titulo_fig,
 
         yaxis=dict(
             title="% Tiempo",
@@ -389,31 +413,40 @@ def grafico_diario(df_pct, df_horas, df_long_semanal, grupo, meta_func, meta_ral
     fig.add_trace(go.Bar(
         x=[None], y=[None],
         marker_color=COLOR_FUNC_WEEK,
-        name="Funcionamiento · Promedio mensual"
+        name= f"Funcionamiento · {etiqueta_prom}"
     ))
 
     fig.add_trace(go.Bar(
         x=[None], y=[None],
         marker_color=COLOR_RAL_WEEK,
-        name="Ralentí · Promedio mensual"
+        name= f"Ralentí · {etiqueta_prom}"
     ))
 
     fig.add_trace(go.Bar(
         x=[None], y=[None],
         marker_color=COLOR_TRANS_WEEK,
-        name="Transporte · Promedio mensual"
+        name= f"Transporte · {etiqueta_prom}"
     ))
 
     return fig
 
 
-def insights_diarios(df_pct, grupo, meta_f, meta_r):
+def insights_diarios(df_pct, df_long_semanal, grupo, meta_f, meta_r):
+    """
+    Genera insights ejecutivos diarios por grupo y por máquina,
+    incluyendo comparación vs promedio semanal con flechas (±3 pp).
+    """
+
     insights = []
 
+    # ======================================================
+    # 0. FILTRO GRUPO
+    # ======================================================
     df_g = df_pct[df_pct["Grupo_trabajo"] == grupo].copy()
+    df_w = df_long_semanal[df_long_semanal["Grupo_trabajo"] == grupo].copy()
 
     # ======================================================
-    # 1. RESUMEN EJECUTIVO DEL GRUPO (BREVE)
+    # 1. RESUMEN EJECUTIVO DEL GRUPO
     # ======================================================
     resumen_grp = (
         df_g
@@ -437,9 +470,9 @@ def insights_diarios(df_pct, grupo, meta_f, meta_r):
     )
 
     # ======================================================
-    # 2. DIAGNÓSTICO POR MÁQUINA
+    # 2. PROMEDIOS DIARIOS POR MÁQUINA
     # ======================================================
-    df_maquina = (
+    df_dia = (
         df_g
         .groupby(["Máquina", "Tipo"])["Porcentaje"]
         .mean()
@@ -447,22 +480,41 @@ def insights_diarios(df_pct, grupo, meta_f, meta_r):
         .reset_index()
     )
 
-    # Asegurar columnas
     for col in ["Funcionamiento", "Ralenti", "Transporte"]:
-        if col not in df_maquina.columns:
-            df_maquina[col] = 0
+        if col not in df_dia.columns:
+            df_dia[col] = 0
 
     # ======================================================
-    # 3. SEMÁFORO Y DESVIACIÓN POR MÁQUINA
+    # 3. PROMEDIOS SEMANALES POR MÁQUINA
+    # ======================================================
+    df_sem = (
+        df_w
+        .groupby(["Máquina", "Tipo"])["Porcentaje"]
+        .mean()
+        .unstack()
+        .reset_index()
+    )
+
+    for col in ["Funcionamiento", "Ralenti", "Transporte"]:
+        if col not in df_sem.columns:
+            df_sem[col] = None
+
+    df_sem = df_sem.set_index("Máquina")
+
+    # ======================================================
+    # 4. DIAGNÓSTICO POR MÁQUINA (SEMÁFORO + TENDENCIA)
     # ======================================================
     diagnosticos = []
 
-    for _, row in df_maquina.iterrows():
+    for _, row in df_dia.iterrows():
         maq = row["Máquina"]
         f = row["Funcionamiento"]
         r = row["Ralenti"]
 
-        # Semáforo por máquina
+        wf = df_sem.loc[maq, "Funcionamiento"] if maq in df_sem.index else None
+        wr = df_sem.loc[maq, "Ralenti"] if maq in df_sem.index else None
+
+        # ---- SEMÁFORO OPERATIVO ----
         if f < meta_f - 8 or r > meta_r + 6:
             sem = "🔴"
             nivel = "Crítica"
@@ -473,6 +525,23 @@ def insights_diarios(df_pct, grupo, meta_f, meta_r):
             sem = "🟢"
             nivel = "Estable"
 
+        # ---- TENDENCIA VS SEMANA (±3 pp) ----
+        trend_f = "➖ en línea con su semana"
+        trend_r = "➖ en línea con su semana"
+
+        if wf is not None:
+            if f >= wf + 3:
+                trend_f = "⬆️ mejor que su promedio semanal"
+            elif f <= wf - 3:
+                trend_f = "⬇️ peor que su promedio semanal"
+
+        if wr is not None:
+            # En ralentí, MENOR es mejor
+            if r <= wr - 3:
+                trend_r = "⬆️ mejor que su promedio semanal"
+            elif r >= wr + 3:
+                trend_r = "⬇️ peor que su promedio semanal"
+
         impacto = (meta_f - f) + max(0, r - meta_r)
 
         diagnosticos.append({
@@ -481,13 +550,15 @@ def insights_diarios(df_pct, grupo, meta_f, meta_r):
             "Ralenti": r,
             "Semáforo": sem,
             "Nivel": nivel,
-            "Impacto": impacto
+            "Impacto": impacto,
+            "Trend_F": trend_f,
+            "Trend_R": trend_r
         })
 
     df_diag = pd.DataFrame(diagnosticos)
 
     # ======================================================
-    # 4. RANKING DE MÁQUINAS (TOP CRÍTICAS)
+    # 5. RANKING DE MÁQUINAS PRIORITARIAS
     # ======================================================
     df_crit = (
         df_diag
@@ -501,34 +572,210 @@ def insights_diarios(df_pct, grupo, meta_f, meta_r):
         for _, r in df_crit.iterrows():
             insights.append(
                 f"{r['Semáforo']} {r['Máquina']} — "
-                f"Func {r['Funcionamiento']:.1f}% | "
-                f"Ral {r['Ralenti']:.1f}% "
+                f"Func {r['Funcionamiento']:.1f}% {r['Trend_F']} | "
+                f"Ral {r['Ralenti']:.1f}% {r['Trend_R']} "
                 f"→ {r['Nivel']}"
             )
     else:
         insights.append("🚜 Todas las máquinas operan dentro de parámetros esperados.")
 
     # ======================================================
-    # 5. ACCIÓN OPERATIVA CONCRETA
+    # 6. ACCIÓN OPERATIVA EJECUTIVA
     # ======================================================
     if estado.startswith("🔴"):
         cierre = (
             "🎯 Acción inmediata: intervenir máquinas críticas con bajo funcionamiento "
-            "y alto ralentí. Revisar causas de tiempos muertos y coordinación operativa."
+            "y alto ralentí. Priorizar control de tiempos muertos y coordinación operativa."
         )
     elif estado.startswith("🟡"):
         cierre = (
             "🎯 Acción recomendada: seguimiento diario por máquina en observación "
-            "para evitar escalamiento del riesgo."
+            "y validación de causas operativas para evitar escalamiento del riesgo."
         )
     else:
         cierre = (
-            "🎯 Acción recomendada: mantener condiciones operativas actuales y control rutinario."
+            "🎯 Acción recomendada: mantener condiciones operativas actuales "
+            "y monitoreo rutinario del desempeño."
         )
 
     insights.append(cierre)
 
     return insights
+
+
+
+def insights_semanales_operativos(df_long_semanal, df_mensual, grupo, meta_f, meta_r):
+    """
+    Genera insights ejecutivos diarios por grupo y por máquina,
+    incluyendo comparación vs promedio semanal con flechas (±3 pp).
+    """
+
+    insights = []   
+
+    # ======================================================
+    # 0. FILTRO GRUPO
+    # ======================================================
+    df_g = df_pct[df_pct["Grupo_trabajo"] == grupo].copy()
+    df_w = df_long_semanal[df_long_semanal["Grupo_trabajo"] == grupo].copy()
+
+    # ======================================================
+    # 1. RESUMEN EJECUTIVO DEL GRUPO
+    # ======================================================
+    resumen_grp = (
+        df_g
+        .groupby("Tipo")["Porcentaje"]
+        .mean()
+        .to_dict()
+    )
+
+    pf = resumen_grp.get("Funcionamiento", 0)
+    pr = resumen_grp.get("Ralenti", 0)
+
+    if pf < meta_f - 8 or pr > meta_r + 6:
+        estado = "🔴 Riesgo operativo alto"
+    elif pf < meta_f or pr > meta_r:
+        estado = "🟡 Riesgo operativo moderado"
+    else:
+        estado = "🟢 Operación bajo control"
+
+    insights.append(
+        f"{estado} — Promedio grupo: Funcionamiento {pf:.1f}% | Ralentí {pr:.1f}%."
+    )
+
+    # ======================================================
+    # 2. PROMEDIOS DIARIOS POR MÁQUINA
+    # ======================================================
+    df_dia = (
+        df_g
+        .groupby(["Máquina", "Tipo"])["Porcentaje"]
+        .mean()
+        .unstack()
+        .reset_index()
+    )
+
+    for col in ["Funcionamiento", "Ralenti", "Transporte"]:
+        if col not in df_dia.columns:
+            df_dia[col] = 0
+
+    # ======================================================
+    # 3. PROMEDIOS SEMANALES POR MÁQUINA
+    # ======================================================
+    df_sem = (
+        df_w
+        .groupby(["Máquina", "Tipo"])["Porcentaje"]
+        .mean()
+        .unstack()
+        .reset_index()
+    )
+
+    for col in ["Funcionamiento", "Ralenti", "Transporte"]:
+        if col not in df_sem.columns:
+            df_sem[col] = None
+
+    df_sem = df_sem.set_index("Máquina")
+
+    # ======================================================
+    # 4. DIAGNÓSTICO POR MÁQUINA (SEMÁFORO + TENDENCIA)
+    # ======================================================
+    diagnosticos = []
+
+    for _, row in df_dia.iterrows():
+        maq = row["Máquina"]
+        f = row["Funcionamiento"]
+        r = row["Ralenti"]
+
+        wf = df_sem.loc[maq, "Funcionamiento"] if maq in df_sem.index else None
+        wr = df_sem.loc[maq, "Ralenti"] if maq in df_sem.index else None
+
+        # ---- SEMÁFORO OPERATIVO ----
+        if f < meta_f - 8 or r > meta_r + 6:
+            sem = "🔴"
+            nivel = "Crítica"
+        elif f < meta_f or r > meta_r:
+            sem = "🟡"
+            nivel = "En observación"
+        else:
+            sem = "🟢"
+            nivel = "Estable"
+
+        # ---- TENDENCIA VS SEMANA (±3 pp) ----
+        trend_f = "➖ en línea con su mes"
+        trend_r = "➖ en línea con su mes"
+
+        if wf is not None:
+            if f >= wf + 3:
+                trend_f = "⬆️ mejor que su promedio mensual"
+            elif f <= wf - 3:
+                trend_f = "⬇️ peor que su promedio mensual"
+
+        if wr is not None:
+            # En ralentí, MENOR es mejor
+            if r <= wr - 3:
+                trend_r = "⬆️ mejor que su promedio mensual"
+            elif r >= wr + 3:
+                trend_r = "⬇️ peor que su promedio mensual"
+
+        impacto = (meta_f - f) + max(0, r - meta_r)
+
+        diagnosticos.append({
+            "Máquina": maq,
+            "Funcionamiento": f,
+            "Ralenti": r,
+            "Semáforo": sem,
+            "Nivel": nivel,
+            "Impacto": impacto,
+            "Trend_F": trend_f,
+            "Trend_R": trend_r
+        })
+
+    df_diag = pd.DataFrame(diagnosticos)
+
+    # ======================================================
+    # 5. RANKING DE MÁQUINAS PRIORITARIAS
+    # ======================================================
+    df_crit = (
+        df_diag
+        .sort_values("Impacto", ascending=False)
+        .head(4)
+    )
+
+    if not df_crit.empty:
+        insights.append("🚜 Diagnóstico por máquina:")
+
+        for _, r in df_crit.iterrows():
+            insights.append(
+                f"{r['Semáforo']} {r['Máquina']} — "
+                f"Func {r['Funcionamiento']:.1f}% {r['Trend_F']} | "
+                f"Ral {r['Ralenti']:.1f}% {r['Trend_R']} "
+                f"→ {r['Nivel']}"
+            )
+    else:
+        insights.append("🚜 Todas las máquinas operan dentro de parámetros esperados.")
+
+    # ======================================================
+    # 6. ACCIÓN OPERATIVA EJECUTIVA
+    # ======================================================
+    if estado.startswith("🔴"):
+        cierre = (
+            "🎯 Acción inmediata: intervenir máquinas críticas con bajo funcionamiento "
+            "y alto ralentí. Priorizar control de tiempos muertos y coordinación operativa."
+        )
+    elif estado.startswith("🟡"):
+        cierre = (
+            "🎯 Acción recomendada: seguimiento diario por máquina en observación "
+            "y validación de causas operativas para evitar escalamiento del riesgo."
+        )
+    else:
+        cierre = (
+            "🎯 Acción recomendada: mantener condiciones operativas actuales "
+            "y monitoreo rutinario del desempeño."
+        )
+
+    insights.append(cierre)
+
+    return insights
+
+
 
 
 def exportar_reporte_png(fig, insights, grupo, nombre="reporte_maquinaria.png"):
@@ -637,7 +884,12 @@ def exportar_reporte_png(fig, insights, grupo, nombre="reporte_maquinaria.png"):
 # ============================================================
 
 def preparar_semanal(df):
-    df["Fecha"] = pd.to_datetime(df["Fecha de inicio"], errors="coerce")
+    df["Fecha"] = pd.to_datetime(
+        df["Fecha de inicio"],
+        dayfirst=True,  
+        errors="coerce"
+    )
+
     df["Semana"] = df["Fecha"].dt.isocalendar().week
 
     df_pct = df[[
@@ -709,6 +961,16 @@ st.title("📊 Seguimiento diario de la maquinaria — Ingenio Providencia")
 # ------------------------------------------------------------
 # REPORTE DIARIO
 # ------------------------------------------------------------
+st.sidebar.header("📊 Período de análisis")
+
+periodo = st.sidebar.radio(
+    "Comparación de desempeño",
+    options=[
+        "Diario vs Semana",
+        "Semana vs Mes"
+    ],
+    index=0
+)
 
 #st.subheader("Seguimiento diario de la maquinaria")
 
@@ -739,6 +1001,8 @@ if archivo_diario and archivo_semanal:
     grupos = sorted(df_d["Grupo_trabajo"].dropna().unique())
 
     st.markdown("---")
+    # Semana más reciente disponible en el archivo semanal
+    semana_actual = int(df_long["Semana"].max())
 
     for grupo in grupos:
         #st.markdown(f"## 🔷 {grupo}")
@@ -753,7 +1017,9 @@ if archivo_diario and archivo_semanal:
             df_long,          # ← data semanal
             grupo,
             metas["func"],
-            metas["ralenti"]
+            metas["ralenti"],
+            periodo,
+            semana_actual
         )
 
 
@@ -762,7 +1028,24 @@ if archivo_diario and archivo_semanal:
         
         #st.plotly_chart(fig_diario, use_container_width=True)
         # ✅ AQUÍ SE DEFINE insights (antes de usarlo en el HTML)
-        insights = insights_diarios(df_pct, grupo, metas["func"], metas["ralenti"])
+        if periodo == "Diario vs Semana":
+            insights = insights_diarios(
+                df_pct,
+                df_long,
+                grupo,
+                metas["func"],
+                metas["ralenti"]
+            )
+
+        elif periodo == "Semana vs Mes":
+            insights = insights_semanales_operativos(
+                df_long,
+                None,              # luego irá el mensual
+                grupo,
+                metas["func"],
+                metas["ralenti"]
+            )
+
         # === LAYOUT TIPO LÁMINA ===
         col_graf, col_txt = st.columns([0.7, 0.3], gap="large")
 
@@ -777,6 +1060,13 @@ if archivo_diario and archivo_semanal:
             resumen = insights[0]
             diagnostico = insights[1:-1]
             accion = insights[-1]
+            # === TÍTULOS DINÁMICOS SEGÚN PERÍODO ===
+            if periodo == "Diario vs Semana":
+                titulo_diag = "🧭 Diagnóstico Diario"
+                subtitulo = "Comparación: Ayer vs Promedio semanal"
+            else:
+                titulo_diag = "🧭 Diagnóstico Semanal"
+                subtitulo = "Comparación: Semana actual vs Promedio mensual"
 
             html = f"""
             <div style="
@@ -788,15 +1078,23 @@ if archivo_diario and archivo_semanal:
                 box-sizing: border-box;
             ">
 
-                <!-- TÍTULO -->
                 <div style="
                     color:#1A7335;
                     font-size:18px;
                     font-weight:700;
-                    margin-bottom:4px;
+                    margin-bottom:2px;
                 ">
-                    🧭 Diagnóstico Operativo
+                    {titulo_diag}
                 </div>
+
+                <div style="
+                    font-size:12px;
+                    color:#555;
+                    margin-bottom:10px;
+                ">
+                    {subtitulo}
+                </div>
+
 
                 <!-- GRUPO (MÁS GRANDE) -->
                 <div style="
@@ -860,7 +1158,3 @@ if archivo_diario and archivo_semanal:
 
 
 #C:\Users\sacorreac\Downloads\.venv\Scripts\streamlit.exe run C:\Users\sacorreac\Downloads\archivo_maquina\maquinaria.py
-
-
-
-
