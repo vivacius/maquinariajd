@@ -354,7 +354,7 @@ def grafico_diario(df_pct, df_horas, df_long_semanal, grupo, meta_func, meta_ral
         height=650,
         template="simple_white",
         barmode="overlay",
-        title=f"Tiempos de operación diario — {grupo}",
+        title=f"Tiempos de operación semanal — {grupo}",
 
         yaxis=dict(
             title="% Tiempo",
@@ -860,4 +860,5 @@ if archivo_diario and archivo_semanal:
 
 
 #C:\Users\sacorreac\Downloads\.venv\Scripts\streamlit.exe run C:\Users\sacorreac\Downloads\archivo_maquina\maquinaria.py
+
 
