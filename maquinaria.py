@@ -147,25 +147,44 @@ def unir_maestro(df):
 # ============================================================
 
 def preparar_diario(df, escala):
+
+    # ===============================
+    # 1. FECHA BASE (DIARIA)
+    # ===============================
     df["Fecha"] = pd.to_datetime(
         df["Fecha de inicio"],
-        dayfirst=True,  
+        dayfirst=True,
         errors="coerce"
     )
 
     df["Semana"] = df["Fecha"].dt.isocalendar().week
+
+    # ===============================
+    # 2. PORCENTAJES
+    # ===============================
     df_pct = df[[
         "Máquina", "Grupo_trabajo",
         "Utilización En funcionamiento (%)",
         "Utilización Transporte (%)",
-        "Utilización Ralentí (%)",
-        "Fecha"
+        "Utilización Ralentí (%)"
     ]].copy()
 
-    df_pct.columns = ["Máquina", "Grupo_trabajo", "Funcionamiento", "Transporte", "Ralenti"]
-    df_pct = df_pct.melt(id_vars=["Máquina", "Grupo_trabajo"], var_name="Tipo", value_name="Porcentaje")
+    df_pct.columns = [
+        "Máquina", "Grupo_trabajo",
+        "Funcionamiento", "Transporte", "Ralenti"
+    ]
+
+    df_pct = df_pct.melt(
+        id_vars=["Máquina", "Grupo_trabajo"],
+        var_name="Tipo",
+        value_name="Porcentaje"
+    )
+
     df_pct["Porcentaje"] *= 100
 
+    # ===============================
+    # 3. HORAS
+    # ===============================
     df_h = df[[
         "Máquina", "Grupo_trabajo",
         "Utilización En funcionamiento (h)",
@@ -174,11 +193,27 @@ def preparar_diario(df, escala):
         "Horas de trabajo del motor Período (h)"
     ]].copy()
 
-    df_h.columns = ["Máquina", "Grupo_trabajo", "Funcionamiento", "Transporte", "Ralenti", "Horas_Motor"]
-    df_horas = df_h.melt(id_vars=["Máquina", "Grupo_trabajo"], var_name="TipoHora", value_name="Horas")
+    df_h.columns = [
+        "Máquina", "Grupo_trabajo",
+        "Funcionamiento", "Transporte", "Ralenti", "Horas_Motor"
+    ]
+
+    df_horas = df_h.melt(
+        id_vars=["Máquina", "Grupo_trabajo"],
+        var_name="TipoHora",
+        value_name="Horas"
+    )
+
     df_horas["HorasEscaladas"] = df_horas["Horas"] * escala
 
-    return df_pct, df_horas
+    # ===============================
+    # 4. METADATA DE FECHA (CLAVE)
+    # ===============================
+    fecha_actual = df["Fecha"].max()
+    semana_actual = int(fecha_actual.isocalendar().week)
+
+    return df_pct, df_horas, fecha_actual, semana_actual
+
 
 def preparar_promedio_semanal(df_long, grupo):
     """
@@ -1166,5 +1201,6 @@ if archivo_diario and archivo_semanal:
 
 
 #C:\Users\sacorreac\Downloads\.venv\Scripts\streamlit.exe run C:\Users\sacorreac\Downloads\archivo_maquina\maquinaria.py
+
 
 
