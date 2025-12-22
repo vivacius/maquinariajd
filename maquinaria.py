@@ -389,19 +389,19 @@ def grafico_diario(df_pct, df_horas, df_long_semanal, grupo, meta_func, meta_ral
     fig.add_trace(go.Bar(
         x=[None], y=[None],
         marker_color=COLOR_FUNC_WEEK,
-        name="Funcionamiento · Promedio semanal"
+        name="Funcionamiento · Promedio mensual"
     ))
 
     fig.add_trace(go.Bar(
         x=[None], y=[None],
         marker_color=COLOR_RAL_WEEK,
-        name="Ralentí · Promedio semanal"
+        name="Ralentí · Promedio mensual"
     ))
 
     fig.add_trace(go.Bar(
         x=[None], y=[None],
         marker_color=COLOR_TRANS_WEEK,
-        name="Transporte · Promedio semanal"
+        name="Transporte · Promedio mensual"
     ))
 
     return fig
@@ -860,5 +860,6 @@ if archivo_diario and archivo_semanal:
 
 
 #C:\Users\sacorreac\Downloads\.venv\Scripts\streamlit.exe run C:\Users\sacorreac\Downloads\archivo_maquina\maquinaria.py
+
 
 
