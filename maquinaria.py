@@ -6,7 +6,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-
+from html2image import Html2Image
 import base64
 import os
 
@@ -148,16 +148,16 @@ def unir_maestro(df):
 
 def preparar_diario(df, escala):
 
-    # ===============================
-    # 1. FECHA BASE (DIARIA)
-    # ===============================
+   
     df["Fecha"] = pd.to_datetime(
         df["Fecha de inicio"],
         dayfirst=True,
         errors="coerce"
     )
 
-    df["Semana"] = df["Fecha"].dt.isocalendar().week
+    fecha_actual = df["Fecha"].max()
+    semana_actual = int(fecha_actual.isocalendar().week)
+
 
     # ===============================
     # 2. PORCENTAJES
@@ -213,6 +213,7 @@ def preparar_diario(df, escala):
     semana_actual = int(fecha_actual.isocalendar().week)
 
     return df_pct, df_horas, fecha_actual, semana_actual
+
 
 
 def preparar_promedio_semanal(df_long, grupo):
@@ -1045,7 +1046,7 @@ if archivo_diario and archivo_semanal:
 
     st.markdown("---")
     # Semana más reciente disponible en el archivo semanal
-    semana_actual = int(df_pct["Semana"].max())
+    semana_actual = int(df_long["Semana"].max())
 
     for grupo in grupos:
         #st.markdown(f"## 🔷 {grupo}")
@@ -1053,7 +1054,7 @@ if archivo_diario and archivo_semanal:
         metas = METAS[grupo]
 
         # === DIARIO ===
-        df_pct, df_h = preparar_diario(df_d, metas["escala"])
+        df_pct, df_h, fecha_actual, semana_actual = preparar_diario(df_d, metas["escala"])
         fig_diario = grafico_diario(
             df_pct,
             df_h,
@@ -1201,6 +1202,3 @@ if archivo_diario and archivo_semanal:
 
 
 #C:\Users\sacorreac\Downloads\.venv\Scripts\streamlit.exe run C:\Users\sacorreac\Downloads\archivo_maquina\maquinaria.py
-
-
-
