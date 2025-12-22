@@ -147,11 +147,19 @@ def unir_maestro(df):
 # ============================================================
 
 def preparar_diario(df, escala):
+    df["Fecha"] = pd.to_datetime(
+        df["Fecha de inicio"],
+        dayfirst=True,  
+        errors="coerce"
+    )
+
+    df["Semana"] = df["Fecha"].dt.isocalendar().week
     df_pct = df[[
         "Máquina", "Grupo_trabajo",
         "Utilización En funcionamiento (%)",
         "Utilización Transporte (%)",
-        "Utilización Ralentí (%)"
+        "Utilización Ralentí (%)",
+        "Fecha"
     ]].copy()
 
     df_pct.columns = ["Máquina", "Grupo_trabajo", "Funcionamiento", "Transporte", "Ralenti"]
@@ -1002,7 +1010,7 @@ if archivo_diario and archivo_semanal:
 
     st.markdown("---")
     # Semana más reciente disponible en el archivo semanal
-    semana_actual = int(df_long["Semana"].max())
+    semana_actual = int(df_pct["Semana"].max())
 
     for grupo in grupos:
         #st.markdown(f"## 🔷 {grupo}")
@@ -1158,4 +1166,5 @@ if archivo_diario and archivo_semanal:
 
 
 #C:\Users\sacorreac\Downloads\.venv\Scripts\streamlit.exe run C:\Users\sacorreac\Downloads\archivo_maquina\maquinaria.py
+
 
